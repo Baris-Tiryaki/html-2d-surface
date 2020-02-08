@@ -1,0 +1,196 @@
+<html>
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="user-scalable=no, initial-scale=0.75">
+  <script src="2d_surface_control.js"> </script>
+  <script>
+var cc, ctx, surface, mapping;
+var N=100, particles=[], t=0, dt=0.0005, realTime, acc=[0.0,0.0,0.0];
+var xborder=1.5, yborder=2, forceCoef=-0.5, frictionCoef=1.0, KE, PE;
+
+function init(){
+  cc = new CanvasControlls(document.getElementById("C1"));
+  surface=cc.surface;
+  mapping=cc.mapping;
+  mapping.upp/=2;
+  ctx=surface.ctx;
+  cc.loop=loop;
+  initParticles();
+  setTimeout(physics, 500);
+
+  if (window.DeviceMotionEvent == undefined) {
+    console.log("no accelerometer");
+  }
+  else {
+    console.log("accelerometer found");
+    window.addEventListener("devicemotion", accelerometerUpdate, true);
+  }
+  realTime=performance.now();
+}
+
+function initParticles(){
+  var i, x,y, vx, vy, m, r, color;
+  particles=new Array(N);
+  for(i=0; i<N; i++){
+    x = xborder*(2*Math.random()-1);
+    y = yborder*(2*Math.random()-1);
+    vx = (4*Math.random()-2);
+    vy = (4*Math.random()-2);
+    r=Math.random();
+    m=1;
+    r=Math.sqrt(m)/20;
+    color="#"+(Math.random()*0xFFFFFF<<0).toString(16);
+    particles[i]={x:x, y:y, vx:vx, vy:vy, m:m, r:r, c:color};
+  }
+}
+function accelerometerUpdate(e){
+  var a=e.accelerationIncludingGravity;
+  if(a.x != null && a.y != null && a.z != null){
+    acc=[-a.x, -a.y, -a.z];
+  }
+}
+function physics(){
+  var i,j, dx,dy, tmp;
+  for(i=0; i<N; i++){
+    for(j=i+1; j<N; j++){
+      //force is proportional to dist^-3
+      dx=particles[j].x-particles[i].x;
+      dy=particles[j].y-particles[i].y;
+      tmp = dx*dx + dy*dy;
+
+      tmp=dt/(tmp*tmp)*forceCoef;
+      dx *= tmp;
+      dy *= tmp;
+
+      particles[i].vx += dx/particles[i].m;
+      particles[i].vy += dy/particles[i].m;
+
+      particles[j].vx -= dx/particles[j].m;
+      particles[j].vy -= dy/particles[j].m;
+    }
+  }
+  tmp = Math.exp(-frictionCoef*dt);
+  for(i=0; i<N; i++){
+    particles[i].vx += acc[0]*dt;//gravity
+    particles[i].vy += acc[1]*dt;
+
+    particles[i].x += particles[i].vx*dt;
+    particles[i].y += particles[i].vy*dt;
+
+    particles[i].vx *= tmp; //friction
+    particles[i].vy *= tmp;
+  }
+  //boundary
+  for(i=0; i<N; i++){
+    var p=particles[i];
+    if(p.x < -xborder+p.r){
+      p.x = 2*(-xborder+p.r)-p.x;
+      p.vx *= -1;
+    }
+    if(p.x > xborder-p.r){
+      p.x = 2*(xborder-p.r)-p.x;
+      p.vx *= -1;
+    }
+
+    if(p.y < -yborder+p.r){
+      p.y = 2*(-yborder+p.r)-p.y;
+      p.vy *= -1;
+    }
+    if(p.y > yborder-p.r){
+      p.y = 2*(yborder-p.r)-p.y;
+      p.vy *= -1;
+    }
+  }
+  t+=dt;
+  realTime+=1000*dt;
+  cc.renderState="dirty";
+}
+function adaptiveFriction(){
+  if(isNaN(KE)==true) KE =0;
+  frictionCoef = 0.02 + Math.sqrt(KE)/20;
+}
+function calculateKE(){
+  KE=0;
+  var x,y;
+  for(var i=0;i<N;i++){
+    x=particles[i].vx;
+    y=particles[i].vy;
+    KE += 0.5*particles[i].m * Math.sqrt(x*x+y*y);
+  }
+  return KE;
+}
+   // override
+function loop(){
+  for(var i=0;i<10000;i++){
+    if(realTime>performance.now()) break;
+    physics();
+  }
+  calculateKE();
+  adaptiveFriction();
+  if(cc.renderState=="dirty"){
+    render();
+    addText();
+    cc.renderState="";
+  }
+  requestAnimationFrame(loop);
+}
+function render(){
+  var wid=surface.wid, hei=surface.hei, centerX=mapping.centerX, centerY=mapping.centerY, upp=mapping.upp;
+  ctx.fillStyle="#000000";
+  ctx.fillRect(0,0, wid, hei);
+  //borders
+  ctx.beginPath();
+  ctx.moveTo(wid/2 + (+xborder-centerX)/upp, hei/2 - (+yborder-centerY)/upp);
+  ctx.lineTo(wid/2 + (+xborder-centerX)/upp, hei/2 - (-yborder-centerY)/upp);
+  ctx.lineTo(wid/2 + (-xborder-centerX)/upp, hei/2 - (-yborder-centerY)/upp);
+  ctx.lineTo(wid/2 + (-xborder-centerX)/upp, hei/2 - (+yborder-centerY)/upp);
+  ctx.lineTo(wid/2 + (+xborder-centerX)/upp, hei/2 - (+yborder-centerY)/upp);
+  ctx.strokeStyle="#ffffff";
+  ctx.stroke();
+
+  var i,x,y,r;
+  for(i=0; i<N; i++){
+    x = wid/2 + (particles[i].x-centerX)/upp;
+    y = hei/2 - (particles[i].y-centerY)/upp;
+    r = particles[i].r/upp;
+
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arc(x, y, r ,0, 2*3.141592);
+    ctx.fillStyle=particles[i].c;
+    ctx.fill();
+  }
+
+  ctx.beginPath();
+  ctx.strokeStyle="#00ff00";
+  for(i=0;i<6;i++){
+    ctx.lineTo(wid-Math.random()*wid/30,hei-Math.random()*hei/30);
+  }
+  ctx.stroke();
+}
+function addText(){
+  var str;
+  ctx.fillStyle="#ffffff";
+  ctx.strokeStyle="#000000";
+  ctx.font = "16px sans-serif";
+
+  ctx.textAlign="left";  ctx.textBaseline="top";
+  str= "resolution: " + surface.wid + "x" + surface.hei;
+  str+=" , N="+N+" particles";
+  ctx.strokeText(str,10, 10); ctx.fillText(str,10,10);
+  str= "time: " + t.toFixed(3) + " + " +dt;
+  ctx.strokeText(str,10, 30); ctx.fillText(str,10, 30);
+  str= "gravity: ["+acc[0].toFixed(1)+" , "+acc[1].toFixed(1)+" , "+acc[2].toFixed(1)+"]";
+  ctx.strokeText(str,10, 50); ctx.fillText(str,10, 50);
+  str= "K.E: " + KE.toFixed(2);
+  ctx.strokeText(str,10, 70); ctx.fillText(str,10, 70);
+  str= "friction: " + frictionCoef.toFixed(3);
+  ctx.strokeText(str,10, 90); ctx.fillText(str,10, 90);
+}
+  </script>
+ </head>
+ <body onload="init();">
+  <canvas style="background-color:#00ff00;"
+    id="C1" width="16" height="4"></canvas>
+ </body>
+</html>
